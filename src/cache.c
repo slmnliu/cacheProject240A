@@ -58,6 +58,27 @@ uint64_t l2cachePenalties; // L2$ penalties
 //
 //TODO: Add your Cache data structures here
 //
+typedef struct CacheBlock {
+  uint32_t address;
+  uint32_t lru;
+  uint32_t valid;
+} CacheBlock;
+
+typedef struct CacheSet {
+  uint32_t numBlocks;
+  uint32_t lru;
+
+  // Array of cache blocks
+  CacheBlock * blocks;
+} CacheSet;
+
+typedef struct Cache {
+  uint32_t size;
+
+  CacheSet * sets;
+} Cache;
+
+Cache * ICache;
 
 //------------------------------------//
 //          Cache Functions           //
@@ -82,6 +103,27 @@ init_cache()
   //
   //TODO: Initialize Cache Simulator Data Structures
   //
+
+  ICache = createCache(#ICacheSize#);
+
+
+}
+
+Cache * createCache(uint32_t size, uint32_t assoc) {
+  Cache * newCache = (Cache *) calloc(sizeof(Cache));
+  newCache->size = size;
+
+  // Create array of sets
+  newCache->sets = (CacheSet*) calloc(size * sizeof(CacheSet));
+
+  // Initialize sets
+  for (int i = 0; i < size; i++) {
+    hash->sets[i].numBlocks = assoc;
+    hash->sets[i].lru = 0;
+
+    // Create an array of blocks within the set
+    hash->sets[i].blocks = (CacheBlock *) calloc(assoc * sizeof(CacheBlock));
+  }
 }
 
 // Perform a memory access through the icache interface for the address 'addr'
