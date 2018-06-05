@@ -54,6 +54,8 @@ uint64_t l2cachePenalties; // L2$ penalties
 //------------------------------------//
 //        Cache Data Structures       //
 //------------------------------------//
+uint32_t numBlockBits;
+uint32_t blockMask;
 
 //
 //TODO: Add your Cache data structures here
@@ -73,7 +75,7 @@ typedef struct CacheSet {
 } CacheSet;
 
 typedef struct Cache {
-  uint32_t size;
+  uint32_t numSets;
 
   CacheSet * sets;
 } Cache;
@@ -100,18 +102,29 @@ init_cache()
   l2cacheMisses     = 0;
   l2cachePenalties  = 0;
   
+  numBlockBits = 0;
+
+  if (blocksize == 0)
+    printf("blocksize is zero, which is a problem @@@@@@@@");
+  // emulate log base 2 of blocksize
+  while (blocksize >> numBlockBits != 1)
+    numBlockBits += 1;
+  
+  blockMask = (-1 << numBlockBits);
+
   //
   //TODO: Initialize Cache Simulator Data Structures
   //
 
-  ICache = createCache(#ICacheSize#);
-
+  ICache = createCache(icacheSets, icacheAssoc);
+  DCache = createCache(dcacheSets, dcacheAssoc);
+  L2Cache = createCache(l2cacheSets, l2cacheAssoc);
 
 }
 
-Cache * createCache(uint32_t size, uint32_t assoc) {
+Cache * createCache(uint32_t numSets, uint32_t assoc) {
   Cache * newCache = (Cache *) calloc(sizeof(Cache));
-  newCache->size = size;
+  newCache->numSets = numSets;
 
   // Create array of sets
   newCache->sets = (CacheSet*) calloc(size * sizeof(CacheSet));
@@ -121,9 +134,29 @@ Cache * createCache(uint32_t size, uint32_t assoc) {
     hash->sets[i].numBlocks = assoc;
     hash->sets[i].lru = 0;
 
-    // Create an array of blocks within the set
+    // Create an array of blocks within the set of size assoc
     hash->sets[i].blocks = (CacheBlock *) calloc(assoc * sizeof(CacheBlock));
+
+    // mark all the blocks in the set as invalid
+    for (int j = 0; j < assoc; j++) {
+      hash->sets[i].blocks[j].valid = 0;
+    }
   }
+
+  return newCache;
+}
+
+// Returns the set location in the cache of the address
+uint32_t getSetBits(uint32_t addr, uint32_t numBlockBits, uint32_t numSets) {
+  uint32_t numSetBits = 0;
+  if (numSets == 0)
+    printf("Num sets is zero, which is a problem @@@@@@@@");
+  while (numSets >> numSetBits != 1)
+    numSetBits += 1;
+  
+  uint32_t setBitMask = ~(-1 << numSetBits);
+
+  return (addr >> numBlockBits) & setBitMask;
 }
 
 // Perform a memory access through the icache interface for the address 'addr'
@@ -132,6 +165,23 @@ Cache * createCache(uint32_t size, uint32_t assoc) {
 uint32_t
 icache_access(uint32_t addr)
 {
+  icacheRefs++;
+
+  uint32_t addrSetBits = getSetBits(addr, numBlockBits, icacheSets);
+  uint32_t zeroedBlockAddr = addr & blockMask;
+
+  // check if addr exists in cache
+  for (int i = 0; i < icacheAssoc; i++) {
+    if (ICache->sets[addrSetBits].blocks[i].valid == 1 && 
+          ICache->sets[addrSetBits].blocks[i].address == zeroedBlockAddr) {
+            return icacheHitTime;
+          }
+  }
+
+  // icache missed, check l2 cache
+  
+
+  
   //
   //TODO: Implement I$
   //
