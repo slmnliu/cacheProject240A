@@ -11,9 +11,9 @@
 //
 // TODO:Student Information
 //
-const char *studentName = "NAME";
-const char *studentID   = "PID";
-const char *email       = "EMAIL";
+const char *studentName = "Solomon Liu, Avinash Kondareddy";
+const char *studentID   = "A12920758, ";
+const char *email       = "smliu@ucsd.edu, ";
 
 //------------------------------------//
 //        Cache Configuration         //
@@ -57,9 +57,6 @@ uint64_t l2cachePenalties; // L2$ penalties
 uint32_t numBlockBits;
 uint32_t blockMask;
 
-//
-//TODO: Add your Cache data structures here
-//
 typedef struct CacheBlock {
   uint32_t address;
   uint32_t lru;
@@ -159,6 +156,40 @@ uint32_t getSetBits(uint32_t addr, uint32_t numBlockBits, uint32_t numSets) {
   return (addr >> numBlockBits) & setBitMask;
 }
 
+void updateBlocksLRUHit(CacheBlock * blocks, uint32_t numBlocks, uint32_t blockHitLRU) {
+  for (int i = 0; i < numBlocks, i++) {
+    
+    // increase the lru of all blocks whose lru is less than the lru of the hit block
+    if (blocks[i].lru < blockHitLRU) {
+      blocks[i].lru++;
+    }
+    else if(blocks[i].lru == blockHitLRU) {
+      blocks[i].lru = 0;
+    }
+  }
+}
+
+// Increases the lru of all the blocks by 1 then inserts the new address at the LRU block
+void updateBlocksLRUMiss(CacheBlock * blocks, uint32_t numBlocks, uint32_t addr) {
+  for (int i = 0; i < numBlocks, i++) {
+    blocks[i].lru++;
+    if (blocks[i].lru == numBlocks) {
+      blocks[i].lru = 0;
+      blocks[i].address = addr;
+    }
+  }
+}
+
+uint32_t allBlocksValid (CacheBlock * blocks, uint32_t numBlocks) {
+  for (int i = 0; i < numBlocks; i++) {
+    if (blocks[i].valid == 0) {
+      return 0;
+    }
+  }
+
+  return 1;
+}
+
 // Perform a memory access through the icache interface for the address 'addr'
 // Return the access time for the memory operation
 //
@@ -172,20 +203,28 @@ icache_access(uint32_t addr)
 
   // check if addr exists in cache
   for (int i = 0; i < icacheAssoc; i++) {
-    if (ICache->sets[addrSetBits].blocks[i].valid == 1 && 
-          ICache->sets[addrSetBits].blocks[i].address == zeroedBlockAddr) {
+
+    CacheBlock blockToCheck = ICache->sets[addrSetBits].blocks[i];
+    if (blockToCheck.valid == 1 && blockToCheck.address == zeroedBlockAddr) {
+            // update LRU of blocks on hit
+            updateBlocksLRUHit(ICache->sets[addrSetBits].blocks, icacheAssoc, blockToCheck.lru);
+            
             return icacheHitTime;
           }
   }
 
   // icache missed, check l2 cache
-  
+  uint32_t l2Latency = l2cache_access(zeroedBlockAddr);
 
+  // bring the value into the l1 cache
+  if (allBlocksValid(ICache->sets[addrSetBits].blocks)) {
+    updateBlocksLRUMiss(ICache->sets[addrSetBits].blocks, icacheAssoc, zeroedBlockAddr);
+  }
+  else {
+    // replace the first invalid block with the new block and mark it valid TODO
+  }
   
-  //
-  //TODO: Implement I$
-  //
-  return memspeed;
+  return icacheHitTime + l2latency;
 }
 
 // Perform a memory access through the dcache interface for the address 'addr'
