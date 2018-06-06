@@ -229,8 +229,8 @@ void updateBlocksLRUInclusive(CacheBlock * blocks, uint32_t numBlocks, uint32_t 
           uint8_t lru_temp = dblocks[j].lru;
           // before we invalidate, update the lru of all the blocks w/ greater lru by -1
           for (int k = 0; k < dcacheAssoc; k++) {
-            if (iblocks[k].lru > lru_temp)
-              iblocks[k].lru--;
+            if (dblocks[k].lru > lru_temp)
+              dblocks[k].lru--;
           }
 
           DCache->sets[setBits].numValid--;
@@ -429,6 +429,7 @@ dcache_access(uint32_t addr)
 
       if (checkedBlock->valid == 0) {
         checkedBlock->valid = 1;
+
         checkedBlock->address = zeroedBlockAddr;
 
         for (int j = 0; j < dcacheAssoc; j++) {
