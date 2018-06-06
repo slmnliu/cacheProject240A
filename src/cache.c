@@ -142,19 +142,25 @@ init_cache()
   L2Cache = createCache(l2cacheSets, l2cacheAssoc);
 
   uint32_t sets = 0;
-  while (icacheSets >> sets != 1)
-    sets += 1;
-  iSetMask = ~(-1 << sets);
+  if (icacheSets > 0) {
+    while (icacheSets >> sets != 1)
+      sets += 1;
+    iSetMask = ~(-1 << sets);
+  }
 
   sets = 0;
-  while (dcacheSets >> sets != 1)
-    sets += 1;
-  dSetMask = ~(-1 << sets);
+  if (dcacheSets > 0) {
+    while (dcacheSets >> sets != 1)
+      sets += 1;
+    dSetMask = ~(-1 << sets);
+  }
 
   sets = 0;
-  while (l2cacheSets >> sets != 1)
-    sets += 1;
-  l2SetMask = ~(-1 << sets);
+  if (l2cacheSets > 0) {
+    while (l2cacheSets >> sets != 1)
+      sets += 1;
+    l2SetMask = ~(-1 << sets);
+  }
 }
 
 // Returns the set location in the cache of the address
@@ -261,11 +267,11 @@ l2cache_access(uint32_t addr)
   uint32_t zeroedBlockAddr = addr & blockMask;
   CacheBlock * blocks = L2Cache->sets[addrSetBits].blocks;
 
+  l2cacheRefs++;
   if (l2cacheSets == 0) {
     return memspeed;
   }
 
-  l2cacheRefs++;
   // check if addr exists in cache
   for (int i = 0; i < l2cacheAssoc; i++) {
 
@@ -329,8 +335,8 @@ icache_access(uint32_t addr)
   if (icacheSets == 0) {
     return l2cache_access(zeroedBlockAddr);
   }
-
   icacheRefs++;
+
   // check if addr exists in cache
   for (int i = 0; i < icacheAssoc; i++) {
 
@@ -392,8 +398,8 @@ dcache_access(uint32_t addr)
   if (dcacheSets == 0) {
     return l2cache_access(zeroedBlockAddr);
   }
-
   dcacheRefs++;
+
   // check if addr exists in cache
   for (int i = 0; i < dcacheAssoc; i++) {
 
