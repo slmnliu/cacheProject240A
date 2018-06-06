@@ -1,5 +1,5 @@
 CC=gcc
-OPTS=-g -std=c99 -Werror
+OPTS=-g -std=c99 -Werror -O3
 
 all: main.o cache.o
 	$(CC) $(OPTS) -lm -o cache main.o cache.o

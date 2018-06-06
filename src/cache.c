@@ -7,13 +7,14 @@
 //========================================================//
 
 #include "cache.h"
+#include <stdio.h>
 
 //
 // TODO:Student Information
 //
 const char *studentName = "Solomon Liu, Avinash Kondareddy";
-const char *studentID   = "A12920758, ";
-const char *email       = "smliu@ucsd.edu, ";
+const char *studentID   = "A12920758, A13074121";
+const char *email       = "smliu@ucsd.edu, akondare@ucsd.edu ";
 
 //------------------------------------//
 //        Cache Configuration         //
@@ -59,29 +60,51 @@ uint32_t blockMask;
 
 typedef struct CacheBlock {
   uint32_t address;
-  uint32_t lru;
-  uint32_t valid;
+  uint8_t lru;
+  uint8_t valid;
 } CacheBlock;
 
 typedef struct CacheSet {
-  uint32_t numBlocks;
-  uint32_t lru;
+  uint8_t numValid;
 
   // Array of cache blocks
   CacheBlock * blocks;
 } CacheSet;
 
 typedef struct Cache {
-  uint32_t numSets;
-
   CacheSet * sets;
 } Cache;
 
 Cache * ICache;
+Cache * DCache;
+Cache * L2Cache;
 
 //------------------------------------//
 //          Cache Functions           //
 //------------------------------------//
+
+Cache * createCache(uint32_t numSets, uint32_t assoc) {
+  Cache * newCache = (Cache *) calloc(1, sizeof(Cache));
+
+  // Create array of sets
+  newCache->sets = (CacheSet*) calloc(numSets, sizeof(CacheSet));
+
+  // Initialize sets
+  for (int i = 0; i < numSets; i++) {
+    newCache->sets[i].numValid = 0;
+
+    // Create an array of blocks within the set of size assoc
+    newCache->sets[i].blocks = (CacheBlock *) calloc(assoc, sizeof(CacheBlock));
+
+    // mark all the blocks in the set as invalid
+    for (int j = 0; j < assoc; j++) {
+      newCache->sets[i].blocks[j].valid = 0;
+      newCache->sets[i].blocks[j].lru = j;
+    }
+  }
+
+  return newCache;
+}
 
 // Initialize the Cache Hierarchy
 //
@@ -101,8 +124,6 @@ init_cache()
   
   numBlockBits = 0;
 
-  if (blocksize == 0)
-    printf("blocksize is zero, which is a problem @@@@@@@@");
   // emulate log base 2 of blocksize
   while (blocksize >> numBlockBits != 1)
     numBlockBits += 1;
@@ -119,35 +140,9 @@ init_cache()
 
 }
 
-Cache * createCache(uint32_t numSets, uint32_t assoc) {
-  Cache * newCache = (Cache *) calloc(sizeof(Cache));
-  newCache->numSets = numSets;
-
-  // Create array of sets
-  newCache->sets = (CacheSet*) calloc(size * sizeof(CacheSet));
-
-  // Initialize sets
-  for (int i = 0; i < size; i++) {
-    hash->sets[i].numBlocks = assoc;
-    hash->sets[i].lru = 0;
-
-    // Create an array of blocks within the set of size assoc
-    hash->sets[i].blocks = (CacheBlock *) calloc(assoc * sizeof(CacheBlock));
-
-    // mark all the blocks in the set as invalid
-    for (int j = 0; j < assoc; j++) {
-      hash->sets[i].blocks[j].valid = 0;
-    }
-  }
-
-  return newCache;
-}
-
 // Returns the set location in the cache of the address
 uint32_t getSetBits(uint32_t addr, uint32_t numBlockBits, uint32_t numSets) {
   uint32_t numSetBits = 0;
-  if (numSets == 0)
-    printf("Num sets is zero, which is a problem @@@@@@@@");
   while (numSets >> numSetBits != 1)
     numSetBits += 1;
   
@@ -157,7 +152,7 @@ uint32_t getSetBits(uint32_t addr, uint32_t numBlockBits, uint32_t numSets) {
 }
 
 void updateBlocksLRUHit(CacheBlock * blocks, uint32_t numBlocks, uint32_t blockHitLRU) {
-  for (int i = 0; i < numBlocks, i++) {
+  for (int i = 0; i < numBlocks; i++) {
     
     // increase the lru of all blocks whose lru is less than the lru of the hit block
     if (blocks[i].lru < blockHitLRU) {
@@ -171,12 +166,44 @@ void updateBlocksLRUHit(CacheBlock * blocks, uint32_t numBlocks, uint32_t blockH
 
 // Increases the lru of all the blocks by 1 then inserts the new address at the LRU block
 void updateBlocksLRUMiss(CacheBlock * blocks, uint32_t numBlocks, uint32_t addr) {
-  for (int i = 0; i < numBlocks, i++) {
+  for (int i = 0; i < numBlocks; i++) {
     blocks[i].lru++;
     if (blocks[i].lru == numBlocks) {
       blocks[i].lru = 0;
       blocks[i].address = addr;
     }
+  }
+}
+
+// Increases the lru of all the blocks by 1 then inserts the new address at the LRU block
+void updateBlocksLRUInclusive(CacheBlock * blocks, uint32_t numBlocks, uint32_t addr, uint32_t setBits) {
+  CacheBlock * iblocks = ICache->sets[setBits].blocks; 
+  CacheBlock * dblocks = DCache->sets[setBits].blocks; 
+  uint32_t temp = 0;
+
+  for (int i = 0; i < numBlocks; i++) {
+    blocks[i].lru++;
+    if (blocks[i].lru == numBlocks) {
+      temp++;
+      
+      // check if block to evict is present in l1 cache
+      for (int j = 0; j < numBlocks; j++) {
+        if (iblocks[j].address == blocks[i].address) {
+          iblocks[j].valid = 0;
+          ICache->sets[setBits].numValid--;
+        }
+        if (dblocks[j].address == blocks[i].address) {
+          dblocks[j].valid = 0;
+          DCache->sets[setBits].numValid--;
+        }
+      }
+
+      blocks[i].lru = 0;
+      blocks[i].address = addr;
+    }
+  }
+  if (temp > 1) {
+    printf("Error in updateBlocksLRU");
   }
 }
 
@@ -196,35 +223,60 @@ uint32_t allBlocksValid (CacheBlock * blocks, uint32_t numBlocks) {
 uint32_t
 icache_access(uint32_t addr)
 {
-  icacheRefs++;
-
   uint32_t addrSetBits = getSetBits(addr, numBlockBits, icacheSets);
   uint32_t zeroedBlockAddr = addr & blockMask;
+  CacheBlock * blocks = ICache->sets[addrSetBits].blocks;
 
+  if (icacheSets == 0) {
+    return l2cache_access(zeroedBlockAddr);
+  }
+
+  icacheRefs++;
   // check if addr exists in cache
   for (int i = 0; i < icacheAssoc; i++) {
 
-    CacheBlock blockToCheck = ICache->sets[addrSetBits].blocks[i];
+    CacheBlock blockToCheck = blocks[i];
     if (blockToCheck.valid == 1 && blockToCheck.address == zeroedBlockAddr) {
             // update LRU of blocks on hit
-            updateBlocksLRUHit(ICache->sets[addrSetBits].blocks, icacheAssoc, blockToCheck.lru);
+            updateBlocksLRUHit(blocks, icacheAssoc, blockToCheck.lru);
             
             return icacheHitTime;
           }
   }
 
   // icache missed, check l2 cache
+  icacheMisses++;
+
   uint32_t l2Latency = l2cache_access(zeroedBlockAddr);
 
   // bring the value into the l1 cache
-  if (allBlocksValid(ICache->sets[addrSetBits].blocks)) {
-    updateBlocksLRUMiss(ICache->sets[addrSetBits].blocks, icacheAssoc, zeroedBlockAddr);
+  if (ICache->sets[addrSetBits].numValid == icacheAssoc) {
+    updateBlocksLRUMiss(blocks, icacheAssoc, zeroedBlockAddr);
   }
   else {
-    // replace the first invalid block with the new block and mark it valid TODO
+    ICache->sets[addrSetBits].numValid++;
+
+    // replace the first invalid block with the new block and mark it valid
+    for (int i = 0; i < icacheAssoc; i++) {
+      CacheBlock * checkedBlock = blocks + i;
+
+      if (checkedBlock->valid == 0) {
+        checkedBlock->valid = 1;
+        checkedBlock->address = zeroedBlockAddr;
+
+        for (int j = 0; j < icacheAssoc; j++) {
+          blocks[j].lru++;
+        }
+        checkedBlock->lru = 0;
+
+        break;
+      }
+    }
   }
+
+  icachePenalties += l2Latency;
   
-  return icacheHitTime + l2latency;
+  return icacheHitTime + l2Latency;
 }
 
 // Perform a memory access through the dcache interface for the address 'addr'
@@ -233,10 +285,58 @@ icache_access(uint32_t addr)
 uint32_t
 dcache_access(uint32_t addr)
 {
-  //
-  //TODO: Implement D$
-  //
-  return memspeed;
+  uint32_t addrSetBits = getSetBits(addr, numBlockBits, dcacheSets);
+  uint32_t zeroedBlockAddr = addr & blockMask;
+  CacheBlock * blocks = DCache->sets[addrSetBits].blocks;
+
+  if (dcacheSets == 0) {
+    return l2cache_access(zeroedBlockAddr);
+  }
+
+  dcacheRefs++;
+  // check if addr exists in cache
+  for (int i = 0; i < dcacheAssoc; i++) {
+
+    CacheBlock blockToCheck = blocks[i];
+    if (blockToCheck.valid == 1 && blockToCheck.address == zeroedBlockAddr) {
+            // update LRU of blocks on hit
+            updateBlocksLRUHit(blocks, dcacheAssoc, blockToCheck.lru);
+            
+            return dcacheHitTime;
+          }
+  }
+
+  // dcache missed, check l2 cache
+  dcacheMisses++;
+
+  uint32_t l2Latency = l2cache_access(zeroedBlockAddr);
+
+  // bring the value into the l1 cache
+  if (DCache->sets[addrSetBits].numValid == dcacheAssoc) {
+    updateBlocksLRUMiss(blocks, dcacheAssoc, zeroedBlockAddr);
+  }
+  else {
+    DCache->sets[addrSetBits].numValid++;
+    // replace the first invalid block with the new block and mark it valid
+    for (int i = 0; i < dcacheAssoc; i++) {
+      CacheBlock * checkedBlock = blocks + i;
+
+      if (checkedBlock->valid == 0) {
+        checkedBlock->valid = 1;
+        checkedBlock->address = zeroedBlockAddr;
+
+        for (int j = 0; j < dcacheAssoc; j++) {
+          blocks[j].lru++;
+        }
+        checkedBlock->lru = 0;
+
+        break;
+      }
+    }
+  }
+  dcachePenalties += l2Latency;
+  
+  return dcacheHitTime + l2Latency;
 }
 
 // Perform a memory access to the l2cache for the address 'addr'
@@ -245,8 +345,58 @@ dcache_access(uint32_t addr)
 uint32_t
 l2cache_access(uint32_t addr)
 {
-  //
-  //TODO: Implement L2$
-  //
-  return memspeed;
+  uint32_t addrSetBits = getSetBits(addr, numBlockBits, l2cacheSets);
+  uint32_t zeroedBlockAddr = addr & blockMask;
+  CacheBlock * blocks = L2Cache->sets[addrSetBits].blocks;
+
+  if (l2cacheSets == 0) {
+    return memspeed;
+  }
+
+  l2cacheRefs++;
+  // check if addr exists in cache
+  for (int i = 0; i < l2cacheAssoc; i++) {
+
+    CacheBlock blockToCheck = blocks[i];
+    if (blockToCheck.valid == 1 && blockToCheck.address == zeroedBlockAddr) {
+            // update LRU of blocks on hit
+            updateBlocksLRUHit(blocks, l2cacheAssoc, blockToCheck.lru);
+            
+            return l2cacheHitTime;
+          }
+  }
+
+  // l2cache missed, check l2 cache
+  l2cacheMisses++;
+
+  // bring the value into the l2 cache
+  if (L2Cache->sets[addrSetBits].numValid == l2cacheAssoc) {
+    if (inclusive) 
+      updateBlocksLRUInclusive(blocks, l2cacheAssoc, zeroedBlockAddr, addrSetBits);
+    else
+      updateBlocksLRUMiss(blocks, l2cacheAssoc, zeroedBlockAddr);
+  }
+  else {
+    L2Cache->sets[addrSetBits].numValid++;
+    // replace the first invalid block with the new block and mark it valid
+    for (int i = 0; i < l2cacheAssoc; i++) {
+      CacheBlock * checkedBlock = blocks + i;
+
+      if (checkedBlock->valid == 0) {
+        checkedBlock->valid = 1;
+        checkedBlock->address = zeroedBlockAddr;
+
+        for (int j = 0; j < l2cacheAssoc; j++) {
+          blocks[j].lru++;
+        }
+        checkedBlock->lru = 0;
+
+        break;
+      }
+    }
+  }
+
+  l2cachePenalties += memspeed;
+  
+  return l2cacheHitTime + memspeed;
 }
