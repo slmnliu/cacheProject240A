@@ -199,9 +199,15 @@ void updateBlocksLRUMiss(CacheBlock * blocks, uint32_t numBlocks, uint32_t addr)
 }
 
 // Increases the lru of all the blocks by 1 then inserts the new address at the LRU block
-void updateBlocksLRUInclusive(CacheBlock * blocks, uint32_t numBlocks, uint32_t addr, uint32_t setBits) {
-  CacheBlock * iblocks = ICache->sets[setBits].blocks; 
-  CacheBlock * dblocks = DCache->sets[setBits].blocks; 
+void updateBlocksLRUInclusive(CacheBlock * blocks, uint32_t addr) {
+  CacheBlock * iblocks = NULL;
+  if( icacheSets ) {
+    iblocks = ICache->sets[(addr>>numBlockBits) & iSetMask].blocks; 
+  }
+  CacheBlock * dblocks = NULL;
+  if( dcacheSets ) {
+    dblocks = DCache->sets[(addr>>numBlockBits) & dSetMask].blocks; 
+  }
   uint32_t temp = 0;
 
   for (int i = 0; i < l2cacheAssoc; i++) {
@@ -209,32 +215,36 @@ void updateBlocksLRUInclusive(CacheBlock * blocks, uint32_t numBlocks, uint32_t 
     if (blocks[i].lru == l2cacheAssoc) {
       temp++;
       
-      // check if block to evict is present in l1 cache
-      for (int j = 0; j < icacheAssoc; j++) {
-        if (iblocks[j].address == blocks[i].address) {
-          iblocks[j].valid = 0;
-          uint8_t lru_temp = iblocks[j].lru;
-          // before we invalidate, update the lru of all the blocks w/ greater lru by -1
-          for (int k = 0; k < icacheAssoc; k++) {
-            if (iblocks[k].lru > lru_temp)
-              iblocks[k].lru--;
-          }
+      if (iblocks != NULL) {
+          // check if block to evict is present in l1 cache
+          for (int j = 0; j < icacheAssoc; j++) {
+            if (iblocks[j].address == blocks[i].address) {
+              iblocks[j].valid = 0;
+              uint8_t lru_temp = iblocks[j].lru;
+              // before we invalidate, update the lru of all the blocks w/ greater lru by -1
+              for (int k = 0; k < icacheAssoc; k++) {
+                if (iblocks[k].lru > lru_temp)
+                  iblocks[k].lru--;
+              }
 
-          ICache->sets[setBits].numValid--;
-        }
+              ICache->sets[(addr>>numBlockBits) & iSetMask].numValid--;
+            }
+          }
       }
-      for (int j = 0; j < dcacheAssoc; j++) {
-        if (dblocks[j].address == blocks[i].address) {
-          dblocks[j].valid = 0;
-          uint8_t lru_temp = dblocks[j].lru;
-          // before we invalidate, update the lru of all the blocks w/ greater lru by -1
-          for (int k = 0; k < dcacheAssoc; k++) {
-            if (dblocks[k].lru > lru_temp)
-              dblocks[k].lru--;
-          }
+      if (dblocks != NULL) {
+          for (int j = 0; j < dcacheAssoc; j++) {
+            if (dblocks[j].address == blocks[i].address) {
+              dblocks[j].valid = 0;
+              uint8_t lru_temp = dblocks[j].lru;
+              // before we invalidate, update the lru of all the blocks w/ greater lru by -1
+              for (int k = 0; k < dcacheAssoc; k++) {
+                if (dblocks[k].lru > lru_temp)
+                  dblocks[k].lru--;
+              }
 
-          DCache->sets[setBits].numValid--;
-        }
+              DCache->sets[(addr>>numBlockBits) & dSetMask].numValid--;
+            }
+          }
       }
 
       blocks[i].lru = 0;
@@ -267,10 +277,10 @@ l2cache_access(uint32_t addr)
   uint32_t zeroedBlockAddr = addr & blockMask;
   CacheBlock * blocks = L2Cache->sets[addrSetBits].blocks;
 
-  l2cacheRefs++;
   if (l2cacheSets == 0) {
     return memspeed;
   }
+  l2cacheRefs++;
 
   // check if addr exists in cache
   for (int i = 0; i < l2cacheAssoc; i++) {
@@ -290,7 +300,7 @@ l2cache_access(uint32_t addr)
   // bring the value into the l2 cache
   if (L2Cache->sets[addrSetBits].numValid == l2cacheAssoc) {
     if (inclusive) {
-      updateBlocksLRUInclusive(blocks, l2cacheAssoc, zeroedBlockAddr, addrSetBits);
+      updateBlocksLRUInclusive(blocks, zeroedBlockAddr);
     }
     else {
       updateBlocksLRUMiss(blocks, l2cacheAssoc, zeroedBlockAddr);
